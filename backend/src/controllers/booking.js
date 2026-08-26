@@ -6,7 +6,6 @@ const { sendConfirmationEmail, sendCancellationEmail } = require('../services/em
 const getAvailableSlots = async (req, res) => {
     try {
         const { date } = req.query;
-
         console.log('📅 Date received:', date);
 
         if (!date) {
@@ -14,8 +13,8 @@ const getAvailableSlots = async (req, res) => {
         }
 
         const selectedDate = new Date(date);
-        const dayOfWeek = selectedDate.getDay();
-        console.log('📅 Day of week:', dayOfWeek);
+        const dayOfWeek = selectedDate.getUTCDay();
+        console.log('📅 Day of week (UTC):', dayOfWeek);
 
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             return res.status(400).json({ error: 'Weekends are not available' });
@@ -28,8 +27,6 @@ const getAvailableSlots = async (req, res) => {
             .eq('day_of_week', dayOfWeek)
             .eq('is_active', true);
 
-        console.log('📋 Slots found:', slots ? slots.length : 0);
-
         if (slotsError) {
             console.error('❌ Slots error:', slotsError);
             return res.status(500).json({ error: slotsError.message });
@@ -39,53 +36,48 @@ const getAvailableSlots = async (req, res) => {
             return res.status(404).json({ error: 'No available slots for this day' });
         }
 
-        // ✅ CORRECT FIX: Get all confirmed bookings and filter by date
-        const { data: allBookings, error: bookingsError } = await supabase
+        // Get booked slots for this date (using TIMESTAMPTZ)
+        const startOfDay = new Date(date);
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const endOfDay = new Date(date);
+        endOfDay.setUTCHours(23, 59, 59, 999);
+
+        const { data: booked, error: bookedError } = await supabase
             .from('bookings')
             .select('slot_start')
-            .eq('status', 'CONFIRMED');
+            .eq('status', 'CONFIRMED')
+            .gte('slot_start', startOfDay.toISOString())
+            .lt('slot_start', endOfDay.toISOString());
 
-        if (bookingsError) {
-            console.error('❌ Bookings error:', bookingsError);
-            return res.status(500).json({ error: bookingsError.message });
+        if (bookedError) {
+            console.error('❌ Booked error:', bookedError);
+            return res.status(500).json({ error: bookedError.message });
         }
 
-        console.log('📋 Total confirmed bookings:', allBookings ? allBookings.length : 0);
+        console.log('📋 Booked slots found:', booked ? booked.length : 0);
 
-        // ✅ Create set of booked slot times for the specific date
+        // Create set of booked slot times
         const bookedSlots = new Set();
-        if (allBookings) {
-            const targetDate = new Date(date);
-            targetDate.setHours(0, 0, 0, 0);
-
-            allBookings.forEach(booking => {
-                const bookingDate = new Date(booking.slot_start);
-                const bookingDateStr = bookingDate.toISOString().split('T')[0];
-
-                if (bookingDateStr === date) {
-                    // ✅ Normalize to match slot format: YYYY-MM-DDTHH:MM:00.000Z
-                    const hours = String(bookingDate.getUTCHours()).padStart(2, '0');
-                    const minutes = String(bookingDate.getUTCMinutes()).padStart(2, '0');
-                    const slotKey = `${date}T${hours}:${minutes}:00.000Z`;
-                    bookedSlots.add(slotKey);
-                    console.log('🔴 Booked slot:', slotKey);
-                }
+        if (booked) {
+            booked.forEach(b => {
+                const bookedTime = new Date(b.slot_start);
+                const key = bookedTime.toISOString();
+                bookedSlots.add(key);
+                console.log('🔴 Booked slot:', key);
             });
         }
-
-        console.log('🔴 Total booked slots for this date:', bookedSlots.size);
 
         // Format all slots
         const allSlots = slots.map(slot => {
             const slotDate = new Date(date);
             const [hours, minutes] = slot.start_time.split(':');
-            slotDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            slotDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
 
             const endDate = new Date(date);
             const [endHours, endMinutes] = slot.end_time.split(':');
-            endDate.setHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
+            endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
 
-            const slotKey = slotDate.toISOString().split('.')[0] + 'Z';
+            const slotKey = slotDate.toISOString();
             const isBooked = bookedSlots.has(slotKey);
 
             console.log('🟢 Slot:', slotKey, 'Booked?', isBooked);
@@ -99,7 +91,6 @@ const getAvailableSlots = async (req, res) => {
 
         const availableCount = allSlots.filter(s => !s.isBooked).length;
         console.log('✅ Available slots:', availableCount);
-        console.log('✅ Booked slots count:', allSlots.filter(s => s.isBooked).length);
 
         res.json({
             date: date,
@@ -114,6 +105,7 @@ const getAvailableSlots = async (req, res) => {
 };
 
 // Create booking
+
 const createBooking = async (req, res) => {
     try {
         const {
@@ -121,76 +113,14 @@ const createBooking = async (req, res) => {
             phone, slot_start, slot_end, timezone
         } = req.body;
 
-        // Validate required fields
-        if (!visitor_name || !visitor_name.trim()) {
-            return res.status(400).json({ error: 'Name is required' });
-        }
+        // ... validation ...
 
-        // STRICT EMAIL VALIDATION - Rejects .con, .c, .x, etc.
-        if (!visitor_email || !visitor_email.trim()) {
-            return res.status(400).json({ error: 'Email is required' });
-        }
-
-        // This regex ONLY allows REAL common domains
-        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.(com|org|net|io|co|in|uk|us|ca|au|de|fr|jp|cn|br|ru|za|it|es|nl|se|no|ch|at|be|dk|fi|ie|pl|pt|gr|nz|my|sg|ph|pk|bd|lk|np|eu|edu|gov|mil|biz|info|name|tv|me|cc|app|dev|tech|online|store|shop|cloud|ai|xyz|site|pro|club|one|world|life|work|email|care|travel|money|plus|gold|rocks|best|top|vip|cool|fun|love|live|news|media|video|pics|photo|team|group)$/i;
+        // ✅ Convert to UTC before saving
+        const utcStart = new Date(slot_start);
+        const utcEnd = new Date(slot_end);
         
-        if (!emailRegex.test(visitor_email.trim())) {
-            console.log('❌ Invalid email rejected:', visitor_email);
-            return res.status(400).json({
-                error: 'Please enter a valid email address (e.g., name@domain.com)'
-            });
-        }
-        console.log('✅ Email validated:', visitor_email);
+        // ... validation ...
 
-        if (!company || !company.trim()) {
-            return res.status(400).json({ error: 'Company is required' });
-        }
-
-        if (!job_title || !job_title.trim()) {
-            return res.status(400).json({ error: 'Job title is required' });
-        }
-
-        if (!slot_start || !slot_end || !timezone) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-
-        // Validate 30-minute slot
-        const start = new Date(slot_start);
-        const end = new Date(slot_end);
-
-        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-            return res.status(400).json({ error: 'Invalid slot date/time' });
-        }
-
-        if (end <= start) {
-            return res.status(400).json({ error: 'Slot end time must be after start time' });
-        }
-
-        const durationMinutes = (end - start) / (1000 * 60);
-        if (durationMinutes !== 30) {
-            return res.status(400).json({ error: 'Demo slot must be exactly 30 minutes' });
-        }
-
-        // Check if slot is available
-        const { data: existing, error: checkError } = await supabase
-            .from('bookings')
-            .select('id')
-            .eq('slot_start', slot_start)
-            .eq('status', 'CONFIRMED')
-            .maybeSingle();
-
-        if (checkError) {
-            throw checkError;
-        }
-
-        if (existing) {
-            return res.status(400).json({ error: 'This slot is already booked' });
-        }
-
-        // Generate secure token
-        const token = generateSecureToken();
-
-        // Create booking
         const { data: booking, error: insertError } = await supabase
             .from('bookings')
             .insert([{
@@ -199,32 +129,14 @@ const createBooking = async (req, res) => {
                 company: company || null,
                 job_title: job_title || null,
                 phone: phone || null,
-                slot_start,
-                slot_end,
+                slot_start: utcStart.toISOString(),  // ✅ Store as UTC
+                slot_end: utcEnd.toISOString(),      // ✅ Store as UTC
                 timezone,
                 status: 'CONFIRMED',
                 token
             }])
             .select()
             .single();
-
-        if (insertError) {
-            throw insertError;
-        }
-
-        // Send email
-        await sendConfirmationEmail(booking);
-
-        res.status(201).json({
-            message: 'Booking confirmed!',
-            booking,
-            rescheduleLink: `/reschedule?token=${token}`,
-            cancelLink: `/cancel?token=${token}`
-        });
-
-    } catch (error) {
-        console.error('Error:', error.message);
-        res.status(500).json({ error: 'Server error' });
     }
 };
 

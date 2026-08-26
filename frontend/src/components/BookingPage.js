@@ -33,35 +33,34 @@ const BookingPage = () => {
         fetchSlots(selectedDate, timezone);
     }, [selectedDate]);
 
-    const fetchSlots = async (date, timezone) => {
-        try {
-            setLoading(true);
-            const formattedDate = moment(date).format('YYYY-MM-DD');
-            const response = await getAvailableSlots(formattedDate);
-            
-            const localSlots = response.slots.map(slot => {
-                const startLocal = moment(slot.start).tz(timezone);
-                const endLocal = moment(slot.end).tz(timezone);
-                return {
-                    ...slot,
-                    startLocal: startLocal.format(),
-                    endLocal: endLocal.format(),
-                    displayTime: startLocal.format('hh:mm A'),
-                    displayEnd: endLocal.format('hh:mm A')
-                };
-            });
-            
-            setSlots(localSlots);
-            setError('');
-            setFieldErrors({});
-        } catch (err) {
-            setError('Failed to load available slots. Please try again.');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    };
-
+   const fetchSlots = async (date, timezone) => {
+    try {
+        setLoading(true);
+        const formattedDate = moment(date).utc().format('YYYY-MM-DD');
+        const response = await getAvailableSlots(formattedDate);
+        
+        const localSlots = response.slots.map(slot => {
+            const startLocal = moment.utc(slot.start).tz(timezone);
+            const endLocal = moment.utc(slot.end).tz(timezone);
+            return {
+                ...slot,
+                startLocal: startLocal.format(),
+                endLocal: endLocal.format(),
+                displayTime: startLocal.format('hh:mm A'),
+                displayEnd: endLocal.format('hh:mm A')
+            };
+        });
+        
+        setSlots(localSlots);
+        setError('');
+        setFieldErrors({});
+    } catch (err) {
+        setError('Failed to load available slots. Please try again.');
+        console.error(err);
+    } finally {
+        setLoading(false);
+    }
+};
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData({ ...formData, [name]: value });
