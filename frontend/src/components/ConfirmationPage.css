@@ -1,0 +1,117 @@
+.confirmation-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #0a0e27 0%, #1a1f4e 100%);
+    padding: 40px 20px;
+}
+
+.confirmation-card {
+    max-width: 500px;
+    margin: 0 auto;
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 40px;
+    text-align: center;
+    color: white;
+}
+
+.success-icon {
+    font-size: 64px;
+    margin-bottom: 10px;
+}
+
+.confirmation-card h2 {
+    font-size: 32px;
+    color: #00d4ff;
+    margin-bottom: 5px;
+}
+
+.sub-text {
+    color: #8892b0;
+    margin-bottom: 30px;
+}
+
+.booking-details {
+    text-align: left;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.detail-row:last-child {
+    border-bottom: none;
+}
+
+.label {
+    color: #8892b0;
+}
+
+.email-notice {
+    background: rgba(0, 212, 255, 0.1);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 20px 0;
+    color: #8892b0;
+    font-size: 14px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.reschedule-btn, .cancel-btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.3s;
+}
+
+.reschedule-btn {
+    background: rgba(0, 212, 255, 0.2);
+    color: #00d4ff;
+    border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+.reschedule-btn:hover {
+    transform: scale(1.02);
+}
+
+.cancel-btn {
+    background: rgba(255, 0, 0, 0.2);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+.cancel-btn:hover {
+    transform: scale(1.02);
+}
+
+.home-btn {
+    padding: 12px 30px;
+    background: transparent;
+    color: #8892b0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.home-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
