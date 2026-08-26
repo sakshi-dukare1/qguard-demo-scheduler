@@ -7,7 +7,7 @@ const getAvailableSlots = async (req, res) => {
     try {
         const { date } = req.query;
 
-        console.log('Date received:', date);
+        console.log('📅 Date received:', date);
 
         if (!date) {
             return res.status(400).json({ error: 'Date is required' });
@@ -15,7 +15,7 @@ const getAvailableSlots = async (req, res) => {
 
         const selectedDate = new Date(date);
         const dayOfWeek = selectedDate.getDay();
-        console.log('Day of week:', dayOfWeek);
+        console.log('📅 Day of week:', dayOfWeek);
 
         if (dayOfWeek === 0 || dayOfWeek === 6) {
             return res.status(400).json({ error: 'Weekends are not available' });
@@ -28,10 +28,10 @@ const getAvailableSlots = async (req, res) => {
             .eq('day_of_week', dayOfWeek)
             .eq('is_active', true);
 
-        console.log('Slots found:', slots ? slots.length : 0);
+        console.log('📋 Slots found:', slots ? slots.length : 0);
 
         if (slotsError) {
-            console.error('Slots error:', slotsError);
+            console.error('❌ Slots error:', slotsError);
             return res.status(500).json({ error: slotsError.message });
         }
 
@@ -39,30 +39,41 @@ const getAvailableSlots = async (req, res) => {
             return res.status(404).json({ error: 'No available slots for this day' });
         }
 
-        //  FIXED: Get booked slots for this date using DATE comparison
-        const { data: booked, error: bookedError } = await supabase
+        // ✅ CORRECT FIX: Get all confirmed bookings and filter by date
+        const { data: allBookings, error: bookingsError } = await supabase
             .from('bookings')
             .select('slot_start')
-            .eq('status', 'CONFIRMED')
-            .gte('slot_start', `${date}T00:00:00`)
-            .lt('slot_start', `${date}T23:59:59`);
+            .eq('status', 'CONFIRMED');
 
-        if (bookedError) {
-            console.error('Booked error:', bookedError);
-            return res.status(500).json({ error: bookedError.message });
+        if (bookingsError) {
+            console.error('❌ Bookings error:', bookingsError);
+            return res.status(500).json({ error: bookingsError.message });
         }
 
-        console.log('Booked slots found:', booked ? booked.length : 0);
+        console.log('📋 Total confirmed bookings:', allBookings ? allBookings.length : 0);
 
-        // Create set of booked slots (store as ISO string without timezone)
+        // ✅ Create set of booked slot times for the specific date
         const bookedSlots = new Set();
-        if (booked) {
-            booked.forEach(b => {
-                // Normalize to same format as slot times
-                const bookedTime = new Date(b.slot_start);
-                bookedSlots.add(bookedTime.toISOString().split('.')[0] + 'Z');
+        if (allBookings) {
+            const targetDate = new Date(date);
+            targetDate.setHours(0, 0, 0, 0);
+
+            allBookings.forEach(booking => {
+                const bookingDate = new Date(booking.slot_start);
+                const bookingDateStr = bookingDate.toISOString().split('T')[0];
+
+                if (bookingDateStr === date) {
+                    // ✅ Normalize to match slot format: YYYY-MM-DDTHH:MM:00.000Z
+                    const hours = String(bookingDate.getUTCHours()).padStart(2, '0');
+                    const minutes = String(bookingDate.getUTCMinutes()).padStart(2, '0');
+                    const slotKey = `${date}T${hours}:${minutes}:00.000Z`;
+                    bookedSlots.add(slotKey);
+                    console.log('🔴 Booked slot:', slotKey);
+                }
             });
         }
+
+        console.log('🔴 Total booked slots for this date:', bookedSlots.size);
 
         // Format all slots
         const allSlots = slots.map(slot => {
@@ -77,7 +88,7 @@ const getAvailableSlots = async (req, res) => {
             const slotKey = slotDate.toISOString().split('.')[0] + 'Z';
             const isBooked = bookedSlots.has(slotKey);
 
-            console.log('Slot:', slotKey, 'Booked?', isBooked);
+            console.log('🟢 Slot:', slotKey, 'Booked?', isBooked);
 
             return {
                 start: slotDate.toISOString(),
@@ -87,8 +98,8 @@ const getAvailableSlots = async (req, res) => {
         });
 
         const availableCount = allSlots.filter(s => !s.isBooked).length;
-        console.log('Available slots:', availableCount);
-        console.log('Booked slots count:', allSlots.filter(s => s.isBooked).length);
+        console.log('✅ Available slots:', availableCount);
+        console.log('✅ Booked slots count:', allSlots.filter(s => s.isBooked).length);
 
         res.json({
             date: date,
@@ -97,7 +108,7 @@ const getAvailableSlots = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error:', error.message);
+        console.error('❌ Error:', error.message);
         res.status(500).json({ error: error.message });
     }
 };
