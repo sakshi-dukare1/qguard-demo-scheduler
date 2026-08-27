@@ -8,96 +8,50 @@ const getAvailableSlots = async (req, res) => {
         const { date } = req.query;
         console.log('📅 Date received:', date);
 
+        // Debug: Check environment variables
+        console.log('🔍 SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Set' : '❌ Not set');
+        console.log('🔍 SUPABASE_KEY:', process.env.SUPABASE_KEY ? '✅ Set' : '❌ Not set');
+
         if (!date) {
             return res.status(400).json({ error: 'Date is required' });
         }
 
         const selectedDate = new Date(date);
         const dayOfWeek = selectedDate.getUTCDay();
+        const dayOfWeekNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
         console.log('📅 Day of week (UTC):', dayOfWeek);
+        console.log('📅 Converted day of week:', dayOfWeekNumber);
 
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
+        if (dayOfWeekNumber === 6 || dayOfWeekNumber === 7) {
             return res.status(400).json({ error: 'Weekends are not available' });
         }
 
-        // Get all slots for this day
-        const { data: slots, error: slotsError } = await supabase
+        // Get ALL slots first (to debug)
+        const { data: allSlots, error: allError } = await supabase
             .from('available_slots')
-            .select('id, day_of_week, start_time, end_time, is_active')
-            .eq('day_of_week', dayOfWeek)
-            .eq('is_active', true);
+            .select('*');
 
-        console.log('📋 Slots found:', slots ? slots.length : 0);
+        console.log('🔍 All slots count:', allSlots ? allSlots.length : 0);
+        console.log('🔍 All slots error:', allError);
 
-        if (slotsError) {
-            console.error('❌ Slots error:', slotsError);
-            return res.status(500).json({ error: slotsError.message });
+        if (allError) {
+            console.error('❌ All slots error:', allError);
+            return res.status(500).json({ error: allError.message });
         }
 
-        if (!slots || slots.length === 0) {
+        // Filter manually by day_of_week
+        const filteredSlots = allSlots ? allSlots.filter(s => 
+            s.day_of_week === dayOfWeekNumber && s.is_active === true
+        ) : [];
+
+        console.log('🔍 Filtered slots for day', dayOfWeekNumber, ':', filteredSlots.length);
+
+        if (!filteredSlots || filteredSlots.length === 0) {
+            console.log('❌ No slots found for day:', dayOfWeekNumber);
             return res.status(404).json({ error: 'No available slots for this day' });
         }
 
-        // Get booked slots for this date (using TIMESTAMPTZ)
-        const startOfDay = new Date(date);
-        startOfDay.setUTCHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setUTCHours(23, 59, 59, 999);
-
-        const { data: booked, error: bookedError } = await supabase
-            .from('bookings')
-            .select('slot_start')
-            .eq('status', 'CONFIRMED')
-            .gte('slot_start', startOfDay.toISOString())
-            .lt('slot_start', endOfDay.toISOString());
-
-        if (bookedError) {
-            console.error('❌ Booked error:', bookedError);
-            return res.status(500).json({ error: bookedError.message });
-        }
-
-        console.log('📋 Booked slots found:', booked ? booked.length : 0);
-
-        // Create set of booked slot times
-        const bookedSlots = new Set();
-        if (booked) {
-            booked.forEach(b => {
-                const bookedTime = new Date(b.slot_start);
-                const key = bookedTime.toISOString();
-                bookedSlots.add(key);
-                console.log('🔴 Booked slot:', key);
-            });
-        }
-
-        // Format all slots
-        const allSlots = slots.map(slot => {
-            const slotDate = new Date(date);
-            const [hours, minutes] = slot.start_time.split(':');
-            slotDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
-
-            const endDate = new Date(date);
-            const [endHours, endMinutes] = slot.end_time.split(':');
-            endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
-
-            const slotKey = slotDate.toISOString();
-            const isBooked = bookedSlots.has(slotKey);
-
-            return {
-                start: slotDate.toISOString(),
-                end: endDate.toISOString(),
-                isBooked: isBooked
-            };
-        });
-
-        const availableCount = allSlots.filter(s => !s.isBooked).length;
-        console.log('✅ Available slots:', availableCount);
-
-        res.json({
-            date: date,
-            slots: allSlots,
-            count: availableCount
-        });
-
+        // ... rest of the code
     } catch (error) {
         console.error('❌ Error:', error.message);
         res.status(500).json({ error: error.message });
