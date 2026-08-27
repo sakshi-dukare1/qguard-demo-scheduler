@@ -8,10 +8,6 @@ const getAvailableSlots = async (req, res) => {
         const { date } = req.query;
         console.log('📅 Date received:', date);
 
-        // Debug: Check environment variables
-        console.log('🔍 SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Set' : '❌ Not set');
-        console.log('🔍 SUPABASE_KEY:', process.env.SUPABASE_KEY ? '✅ Set' : '❌ Not set');
-
         if (!date) {
             return res.status(400).json({ error: 'Date is required' });
         }
@@ -51,7 +47,35 @@ const getAvailableSlots = async (req, res) => {
             return res.status(404).json({ error: 'No available slots for this day' });
         }
 
-        // ... rest of the code
+        // ✅ Format the response IMMEDIATELY
+        const allSlotsFormatted = filteredSlots.map(slot => {
+            const slotDate = new Date(date);
+            const [hours, minutes] = slot.start_time.split(':');
+            slotDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+            const endDate = new Date(date);
+            const [endHours, endMinutes] = slot.end_time.split(':');
+            endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
+
+            return {
+                start: slotDate.toISOString(),
+                end: endDate.toISOString(),
+                isBooked: false // We'll check bookings later
+            };
+        });
+
+        const availableCount = allSlotsFormatted.filter(s => !s.isBooked).length;
+        console.log('✅ Available slots:', availableCount);
+
+        // ✅ SEND RESPONSE IMMEDIATELY
+        res.json({
+            date: date,
+            slots: allSlotsFormatted,
+            count: availableCount
+        });
+
+        console.log('✅ Response sent!');
+
     } catch (error) {
         console.error('❌ Error:', error.message);
         res.status(500).json({ error: error.message });
