@@ -3,6 +3,7 @@ const { generateSecureToken } = require('../utils/token');
 const { sendConfirmationEmail, sendCancellationEmail } = require('../services/email');
 
 // Get available slots
+// Get available slots
 const getAvailableSlots = async (req, res) => {
     try {
         const { date } = req.query;
@@ -15,39 +16,51 @@ const getAvailableSlots = async (req, res) => {
         const selectedDate = new Date(date);
         const dayOfWeek = selectedDate.getUTCDay();
         const dayOfWeekNumber = dayOfWeek === 0 ? 7 : dayOfWeek;
-        console.log('📅 Day of week (UTC):', dayOfWeek);
-        console.log('📅 Converted day of week:', dayOfWeekNumber);
 
         if (dayOfWeekNumber === 6 || dayOfWeekNumber === 7) {
             return res.status(400).json({ error: 'Weekends are not available' });
         }
 
-        // Get ALL slots first (to debug)
         const { data: allSlots, error: allError } = await supabase
             .from('available_slots')
             .select('*');
-
-        console.log('🔍 All slots count:', allSlots ? allSlots.length : 0);
-        console.log('🔍 All slots error:', allError);
 
         if (allError) {
             console.error('❌ All slots error:', allError);
             return res.status(500).json({ error: allError.message });
         }
 
-        // Filter manually by day_of_week
-        const filteredSlots = allSlots ? allSlots.filter(s => 
+        const filteredSlots = allSlots ? allSlots.filter(s =>
             s.day_of_week === dayOfWeekNumber && s.is_active === true
         ) : [];
 
-        console.log('🔍 Filtered slots for day', dayOfWeekNumber, ':', filteredSlots.length);
-
         if (!filteredSlots || filteredSlots.length === 0) {
-            console.log('❌ No slots found for day:', dayOfWeekNumber);
             return res.status(404).json({ error: 'No available slots for this day' });
         }
 
-        // ✅ Format the response IMMEDIATELY
+        // ✅ NEW: fetch confirmed bookings for this date
+        const dayStart = new Date(`${date}T00:00:00.000Z`).toISOString();
+        const dayEnd = new Date(`${date}T23:59:59.999Z`).toISOString();
+
+        const { data: bookedRows, error: bookedError } = await supabase
+            .from('bookings')
+            .select('slot_start')
+            .eq('status', 'CONFIRMED')
+            .gte('slot_start', dayStart)
+            .lte('slot_start', dayEnd);
+
+        if (bookedError) {
+            console.error('❌ Bookings fetch error:', bookedError);
+            return res.status(500).json({ error: bookedError.message });
+        }
+
+        console.log('📋 Booked slots found:', bookedRows.length);
+
+        // ✅ Compare by primitive value (ms timestamp), not object identity
+        const bookedTimes = new Set(
+            bookedRows.map(b => new Date(b.slot_start).getTime())
+        );
+
         const allSlotsFormatted = filteredSlots.map(slot => {
             const slotDate = new Date(date);
             const [hours, minutes] = slot.start_time.split(':');
@@ -57,24 +70,22 @@ const getAvailableSlots = async (req, res) => {
             const [endHours, endMinutes] = slot.end_time.split(':');
             endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
 
+            const isBooked = bookedTimes.has(slotDate.getTime());
+
             return {
                 start: slotDate.toISOString(),
                 end: endDate.toISOString(),
-                isBooked: false // We'll check bookings later
+                isBooked
             };
         });
 
         const availableCount = allSlotsFormatted.filter(s => !s.isBooked).length;
-        console.log('✅ Available slots:', availableCount);
 
-        // ✅ SEND RESPONSE IMMEDIATELY
         res.json({
             date: date,
             slots: allSlotsFormatted,
             count: availableCount
         });
-
-        console.log('✅ Response sent!');
 
     } catch (error) {
         console.error('❌ Error:', error.message);
