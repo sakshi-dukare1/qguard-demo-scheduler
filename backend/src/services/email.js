@@ -1,6 +1,8 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -30,8 +32,8 @@ const sendConfirmationEmail = async (booking) => {
                 <li><strong>Timezone:</strong> ${booking.timezone || 'Asia/Kolkata'}</li>
             </ul>
             <p>
-                <a href="http://localhost:3000/reschedule?token=${booking.token}">🔄 Reschedule</a> | 
-                <a href="http://localhost:3000/cancel?token=${booking.token}">❌ Cancel</a>
+                <a href="${FRONTEND_URL}/reschedule?token=${booking.token}">🔄 Reschedule</a> | 
+                <a href="${FRONTEND_URL}/cancel?token=${booking.token}">❌ Cancel</a>
             </p>
             <p>Thanks,<br><strong>TrevasQ Team</strong></p>
         `;
