@@ -1,8 +1,7 @@
 import axios from 'axios';
 
 // ✅ Use environment variable or fallback to Render backend
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://qguard-backend-cv7e.onrender.com/';
-
+const API_BASE_URL = process.env.REACT_APP_API_URL?`${process.env.REACT_APP_API_URL}/api`:'https://qguard-backend-cv7e.onrender.com/api';
 const api = axios.create({
     baseURL: API_BASE_URL,
     headers: {
