@@ -60,32 +60,35 @@ const getAvailableSlots = async (req, res) => {
         const bookedTimes = new Set(
             bookedRows.map(b => new Date(b.slot_start).getTime())
         );
+const allSlotsFormatted = filteredSlots.map(slot => {
+    const slotDate = new Date(date);
+    const [hours, minutes] = slot.start_time.split(':');
+    slotDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
 
-        const allSlotsFormatted = filteredSlots.map(slot => {
-            const slotDate = new Date(date);
-            const [hours, minutes] = slot.start_time.split(':');
-            slotDate.setUTCHours(parseInt(hours), parseInt(minutes), 0, 0);
+    const endDate = new Date(date);
+    const [endHours, endMinutes] = slot.end_time.split(':');
+    endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
 
-            const endDate = new Date(date);
-            const [endHours, endMinutes] = slot.end_time.split(':');
-            endDate.setUTCHours(parseInt(endHours), parseInt(endMinutes), 0, 0);
+    const isBooked = bookedTimes.has(slotDate.getTime());
 
-            const isBooked = bookedTimes.has(slotDate.getTime());
+    return {
+        start: slotDate.toISOString(),
+        end: endDate.toISOString(),
+        isBooked,
+        isPast: slotDate.getTime() <= Date.now()   // ✅ new
+    };
+});
 
-            return {
-                start: slotDate.toISOString(),
-                end: endDate.toISOString(),
-                isBooked
-            };
-        });
+// ✅ Only return future, unbooked-or-not slots — but exclude past ones entirely
+const availableSlots = allSlotsFormatted.filter(s => !s.isPast);
 
-        const availableCount = allSlotsFormatted.filter(s => !s.isBooked).length;
+const availableCount = availableSlots.filter(s => !s.isBooked).length;
 
-        res.json({
-            date: date,
-            slots: allSlotsFormatted,
-            count: availableCount
-        });
+res.json({
+    date: date,
+    slots: availableSlots,
+    count: availableCount
+});
 
     } catch (error) {
         console.error('❌ Error:', error.message);
@@ -139,6 +142,9 @@ const createBooking = async (req, res) => {
         if (isNaN(start.getTime()) || isNaN(end.getTime())) {
             return res.status(400).json({ error: 'Invalid slot date/time' });
         }
+        if (start.getTime() <= Date.now()) {
+    return res.status(400).json({ error: 'Cannot book a slot in the past' });
+}
 
         if (end <= start) {
             return res.status(400).json({ error: 'Slot end time must be after start time' });
