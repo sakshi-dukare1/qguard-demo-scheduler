@@ -36,9 +36,8 @@ const BookingPage = () => {
    const fetchSlots = async (date, timezone) => {
     try {
         setLoading(true);
-        const formattedDate = moment(date).utc().format('YYYY-MM-DD');
-        const response = await getAvailableSlots(formattedDate);
-        
+        const formattedDate = moment(date).format('YYYY-MM-DD');
+        const response = await getAvailableSlots(formattedDate);        
         const localSlots = response.slots.map(slot => {
             const startLocal = moment.utc(slot.start).tz(timezone);
             const endLocal = moment.utc(slot.end).tz(timezone);
