@@ -11,7 +11,6 @@ const ReschedulePage = () => {
     const token = searchParams.get('token');
 
     const [selectedDate, setSelectedDate] = useState(new Date());
-    const [selectedSlot, setSelectedSlot] = useState(null);
     const [slots, setSlots] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
