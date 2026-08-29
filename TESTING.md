@@ -2,21 +2,22 @@
 
 This document summarizes the manual, API, and concurrency testing performed against the local development environment (`localhost:5000` backend, `localhost:3000` frontend) prior to deployment.
 
-> 📁 Screenshots referenced below are stored in the [`screenshots/`](screenshots/) folder in this repo.
+> 📁 Screenshots referenced below are stored in the [`Screenshots/`](Screenshots/) folder in this repository.
 
 ---
 
 ## 1. Manual End-to-End Flow Testing
 
-Full visitor journey tested through the actual UI, per the required flow:
+Full visitor journey tested through the actual UI, following the required flow:
+
 `QGuard Page → Enter Details → Select Time → Confirm → Email + Calendar Invite → Reschedule / Cancel`
 
 | Step | Result |
 |------|--------|
-| Load booking page, fill visitor details | ✅ Pass |
+| Load booking page and fill visitor details | ✅ Pass |
 | Select an available (non-booked, non-past) slot | ✅ Pass |
 | Review & confirm modal shows correct details | ✅ Pass |
-| Booking saved to Supabase `bookings` table, status `CONFIRMED` | ✅ Pass |
+| Booking saved to Supabase `bookings` table with status `CONFIRMED` | ✅ Pass |
 | Confirmation page displays correct name, email, date, time, and timezone | ✅ Pass |
 | Confirmation email received via Resend | ✅ Pass |
 | Email correctly shows time converted to the visitor's selected timezone | ✅ Pass |
@@ -27,19 +28,19 @@ Full visitor journey tested through the actual UI, per the required flow:
 | Cancel link updates booking status to `CANCELLED` | ✅ Pass |
 | Cancelling releases the slot (confirmed via `/api/slots`) | ✅ Pass |
 
-**Evidence:**
-
-`.ics` calendar invite successfully imported into Outlook, showing correct event title and time:
-
-![ICS calendar import into Outlook](screenshots/ics-calendar-import.png)
+The complete end-to-end flow was manually verified through the browser, including booking, confirmation, email, rescheduling, and cancellation.
 
 ---
 
 ## 2. Double-Booking Prevention (Concurrency Testing)
 
-**Why this matters:** a sequential "check, then insert" at the application level has a race-condition window — two requests arriving at nearly the same instant can both pass the "is this slot free?" check before either has written its row. The assessment explicitly requires prevention **at the backend/database level**, so this was tested with genuinely simultaneous requests rather than one-after-another manual clicks.
+### Why this matters
 
-### Database constraint
+A sequential "check, then insert" approach at the application level has a race-condition window. Two requests arriving at nearly the same time could both pass the "is this slot free?" check before either request writes its booking.
+
+The assessment requires double-booking prevention at the **backend/database level**, so this was tested using genuinely simultaneous requests rather than sequential manual clicks.
+
+### Database Constraint
 
 ```sql
 CREATE UNIQUE INDEX unique_confirmed_slot
@@ -47,53 +48,107 @@ ON bookings (slot_start)
 WHERE status = 'CONFIRMED';
 ```
 
-Verified present via:
+The constraint was verified using:
+
 ```sql
-SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'bookings';
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'bookings';
 ```
 
-**Evidence:**
+### Evidence
 
-![Supabase unique index confirmation](screenshots/supabase-unique-index.png)
+![Supabase unique index confirmation](Screenshots/supabase-unique-index.png)
 
-### Concurrency test script
+### Concurrency Test Script
 
-`backend/test-concurrency.js` fires two `POST /api/bookings` requests for the **same slot** using `Promise.allSettled`, so both requests are in flight at the same time rather than sequentially awaited.
+`backend/test-concurrency.js` fires two `POST /api/bookings` requests for the **same slot** using `Promise.allSettled`, ensuring both requests are in flight at approximately the same time.
+
+Run using:
 
 ```bash
 node test-concurrency.js
 ```
 
-**Result:**
-```
+### Result
+
+```text
 🚀 Firing two simultaneous booking requests for the same slot...
+
 Result statuses: [ 201, 409 ]
+
 ✅ PASS — exactly one booking succeeded, the other was correctly rejected.
 ```
 
-**Evidence:**
+### Evidence
 
-![Concurrency test result showing 201 and 409](screenshots/concurrency-test-result.png)
+![Concurrency test result showing 201 and 409](Screenshots/concurrency-test-result.png)
 
-One request succeeded (`201 Created`); the other was rejected with `409 Conflict` — caught by the Postgres unique constraint (`error.code === '23505'`) in `createBooking`, not merely by the earlier application-level check. This is the layer that actually closes the race condition.
+One request succeeded with `201 Created`, while the other was rejected with `409 Conflict`.
 
-The same constraint-violation handling is also applied in `rescheduleBooking`, so rescheduling into an already-taken slot is rejected the same way.
+The conflict is handled using the PostgreSQL unique constraint (`error.code === '23505'`) in `createBooking`, rather than relying only on the earlier application-level availability check. This closes the race-condition window at the database level.
+
+The same constraint-violation handling is also applied in `rescheduleBooking`, so rescheduling into an already-booked slot is rejected in the same way.
 
 ---
 
 ## 3. API Validation Testing (Postman)
 
-Negative/validation testing against `POST /api/bookings` and `GET /api/bookings/:token`, confirming the API rejects bad input with clear, structured errors instead of crashing or silently accepting it.
+Negative and validation testing was performed against:
 
-| # | Test | Input | Expected | Actual | Result | Evidence |
-|---|------|-------|----------|--------|--------|----------|
-| 1 | Missing required field | No `visitor_name` | `400` | `400` — `"Name is required"` (+ related field messages) | ✅ Pass | [screenshot](screenshots/postman-validation-01-missing-name.png) |
-| 2 | Invalid email format | `visitor_email: "not-an-email"` | `400` | `400` — `"Please enter a valid email address"` | ✅ Pass | [screenshot](screenshots/postman-validation-02-invalid-email.png) |
-| 3 | Invalid slot duration | 45-minute slot instead of 30 | `400` | `400` — `"Demo slot must be exactly 30 minutes"` | ✅ Pass | [screenshot](screenshots/postman-validation-03-wrong-duration.png) |
-| 4 | Past slot booking | `slot_start` in the past | `400` | `400` — `"Cannot book a slot in the past"` | ✅ Pass | [screenshot](screenshots/postman-validation-04-past-slot.png) |
-| 5 | Nonexistent booking token | `GET /api/bookings/invalid-fake-token-123` | `404` | `404` — `"Booking not found"` | ✅ Pass | [screenshot](screenshots/postman-validation-05-invalid-token.png) |
+- `POST /api/bookings`
+- `GET /api/bookings/:token`
 
-All error responses return structured JSON (`{ error: "..." }` or `{ success: false, errors: [...] }`) rather than raw stack traces or database error messages — avoiding leaking internal implementation details to the client.
+The tests confirm that the API rejects invalid input with clear, structured errors instead of crashing or silently accepting invalid requests.
+
+| # | Test | Input | Expected | Actual | Result |
+|---|------|-------|----------|--------|--------|
+| 1 | Missing required field | No `visitor_name` | `400` | `400` — `"Name is required"` | ✅ Pass |
+| 2 | Invalid email format | `visitor_email: "not-an-email"` | `400` | `400` — `"Please enter a valid email address"` | ✅ Pass |
+| 3 | Invalid slot duration | 45-minute slot instead of 30 | `400` | `400` — `"Demo slot must be exactly 30 minutes"` | ✅ Pass |
+| 4 | Past slot booking | `slot_start` in the past | `400` | `400` — `"Cannot book a slot in the past"` | ✅ Pass |
+| 5 | Nonexistent booking token | `GET /api/bookings/invalid-fake-token-123` | `404` | `404` — `"Booking not found"` | ✅ Pass |
+
+### Evidence
+
+#### 1. Missing Required Name
+
+![Missing required visitor name](Screenshots/postman-validation-missing-name.png)
+
+#### 2. Invalid Email
+
+![Invalid email validation](Screenshots/postman-validation-Invalid-email.png)
+
+#### 3. Wrong Slot Duration
+
+![Wrong slot duration validation](Screenshots/postman-validation-Wrong-slot-duration.png)
+
+#### 4. Past Slot
+
+![Past slot validation](Screenshots/postman-validation-Past-slot.png)
+
+#### 5. Invalid Booking Token
+
+![Invalid booking token](Screenshots/booking-invalid-token-test.png)
+
+All error responses return structured JSON such as:
+
+```json
+{
+  "error": "Booking not found"
+}
+```
+
+or:
+
+```json
+{
+  "success": false,
+  "errors": []
+}
+```
+
+This prevents raw stack traces or database error messages from being exposed to the client.
 
 ---
 
@@ -106,6 +161,8 @@ All error responses return structured JSON (`{ error: "..." }` or `{ success: fa
 | Rescheduling a `CANCELLED` booking | Rejected — `"Cannot reschedule cancelled booking"` |
 | Cancelling an already-`CANCELLED` booking | Rejected — `"Booking already cancelled"` |
 
+These tests confirm that invalid dates, unavailable slots, and invalid booking states are handled by the backend rather than relying only on frontend validation.
+
 ---
 
 ## 5. Timezone Testing
@@ -116,27 +173,89 @@ All error responses return structured JSON (`{ error: "..." }` or `{ success: fa
 | Changing timezone dropdown updates displayed slot times | ✅ Verified |
 | Confirmation modal shows time in selected timezone | ✅ Verified |
 | Confirmation page shows time in selected timezone | ✅ Verified |
-| Confirmation email shows time in selected timezone (not server-local time) | ✅ Verified — fixed a bug where the email originally used server-local `toTimeString()` instead of the visitor's chosen timezone |
-| Date-query bug: selecting a calendar date and converting it via `.utc()` before querying `/api/slots` could shift the requested date by a day for non-IST users | 🔧 Identified and fixed (removed unnecessary `.utc()` call in `fetchSlots`) |
+| Confirmation email shows time in selected timezone rather than server-local time | ✅ Verified |
+| Date-query timezone bug | 🔧 Identified and fixed |
+
+### Timezone Details
+
+The confirmation email was tested to ensure that the displayed time is converted to the visitor's selected timezone rather than using the server's local time.
+
+A date-query issue was also identified where selecting a calendar date and converting it using `.utc()` before querying `/api/slots` could shift the requested date by one day for users in certain timezones.
+
+This was fixed by removing the unnecessary `.utc()` conversion from `fetchSlots`.
 
 ---
 
 ## 6. Known Minor Issue (Not Blocking)
 
-- The email validation chain runs an MX-record DNS lookup even on input that already failed the basic format check (e.g. `"not-an-email"`), because `express-validator`'s `.custom()` validators in the same chain all execute regardless of an earlier failure. This doesn't affect correctness (invalid emails are still correctly rejected with `400`), but it's unnecessary DNS work on obviously-invalid input. Flagged for future cleanup.
+The email validation chain performs an MX-record DNS lookup even when the input has already failed the basic email-format validation.
+
+For example:
+
+```text
+not-an-email
+```
+
+is rejected correctly with a `400` response, but the custom DNS validation may still execute because multiple `express-validator` custom validators in the same chain can run even after an earlier validation failure.
+
+This does not affect correctness because invalid email addresses are still rejected. It only results in unnecessary DNS work for obviously invalid input.
+
+This has been identified and can be optimized in a future cleanup.
 
 ---
 
 ## 7. Local vs. Deployed Testing
 
-All results above were captured against the **local** environment (`localhost:5000` / `localhost:3000`). This was intentional — local iteration is faster to debug, and a prior issue (Gmail SMTP failing with `ENETUNREACH` specifically on Render's network, invisible locally) demonstrated that environment-specific bugs exist independently of application logic. The same test suite (manual flow, concurrency script, Postman validation set) should be re-run against the deployed Render backend and Vercel frontend after deployment, using the same booking/date parameters adjusted to real future dates.
+All results documented above were captured against the **local development environment**:
+
+```text
+Backend:  localhost:5000
+Frontend: localhost:3000
+```
+
+This was intentional because local testing allows faster debugging and iteration.
+
+A previous environment-specific issue demonstrated the importance of testing after deployment as well: Gmail SMTP failed with `ENETUNREACH` on the Render network even though the same functionality worked locally.
+
+Therefore, after deployment, the same test suite should be re-run against:
+
+- Render backend
+- Vercel frontend
+- Supabase production database
+- Resend email service
+
+The booking/date parameters should be adjusted to valid future dates when repeating the tests on the deployed environment.
+
+---
+
+## 8. Testing Summary
+
+The following areas were successfully tested locally:
+
+| Testing Area | Status |
+|---------------|--------|
+| Manual booking flow | ✅ Pass |
+| Booking confirmation | ✅ Pass |
+| Supabase booking storage | ✅ Pass |
+| Email delivery | ✅ Pass |
+| Timezone conversion | ✅ Pass |
+| Calendar `.ics` invite | ✅ Pass |
+| Rescheduling | ✅ Pass |
+| Cancellation | ✅ Pass |
+| Double-booking prevention | ✅ Pass |
+| Database unique constraint | ✅ Pass |
+| API validation | ✅ Pass |
+| Invalid booking token handling | ✅ Pass |
+| Weekend validation | ✅ Pass |
+| Past-slot validation | ✅ Pass |
+| Cancelled booking protection | ✅ Pass |
 
 ---
 
 ## Tools Used
 
-- **Postman** — API request/response testing
+- **Postman** — API request and response testing
 - **Node.js script (`test-concurrency.js`)** — concurrent request simulation using `Promise.allSettled`
-- **Manual browser testing** — Chrome, full user flow
+- **Manual browser testing** — complete user flow
 - **Outlook desktop** — `.ics` calendar invite import verification
 - **Supabase SQL Editor** — database constraint verification
