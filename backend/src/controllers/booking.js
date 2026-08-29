@@ -175,6 +175,7 @@ const createBooking = async (req, res) => {
         const token = generateSecureToken();
 
         // Create booking
+                // Create booking
         const { data: booking, error: insertError } = await supabase
             .from('bookings')
             .insert([{
@@ -193,17 +194,26 @@ const createBooking = async (req, res) => {
             .single();
 
         if (insertError) {
+            // ✅ Postgres unique constraint violation (double-booking caught at DB level)
+            if (insertError.code === '23505') {
+                console.log('⚠️ Double-booking blocked by DB constraint:', slot_start);
+                return res.status(409).json({ error: 'This slot is already booked' });
+            }
             throw insertError;
         }
 
-        // Send email
-        await sendConfirmationEmail(booking);
-
+        
+                // Send response immediately — don't make the user wait on email
         res.status(201).json({
             message: 'Booking confirmed!',
             booking,
             rescheduleLink: `/reschedule?token=${token}`,
             cancelLink: `/cancel?token=${token}`
+        });
+
+        // Send email in the background — failure here won't affect the booking
+        sendConfirmationEmail(booking).catch(err => {
+            console.error('Email error (booking still succeeded):', err.message);
         });
 
     } catch (error) {
@@ -236,6 +246,7 @@ const getBookingByToken = async (req, res) => {
 };
 
 // Reschedule booking
+// Reschedule booking
 const rescheduleBooking = async (req, res) => {
     try {
         const { token } = req.params;
@@ -251,7 +262,7 @@ const rescheduleBooking = async (req, res) => {
             .eq('token', token)
             .single();
 
-        if (getError) {
+        if (getError || !booking) {
             return res.status(404).json({ error: 'Booking not found' });
         }
 
@@ -259,6 +270,13 @@ const rescheduleBooking = async (req, res) => {
             return res.status(400).json({ error: 'Cannot reschedule cancelled booking' });
         }
 
+        // Prevent rescheduling into the past
+        const newStart = new Date(slot_start);
+        if (isNaN(newStart.getTime()) || newStart.getTime() <= Date.now()) {
+            return res.status(400).json({ error: 'Cannot reschedule to a past slot' });
+        }
+
+        // Fast-path check (app-level) — DB constraint below is the real guarantee
         const { data: existing, error: checkError } = await supabase
             .from('bookings')
             .select('id')
@@ -287,6 +305,11 @@ const rescheduleBooking = async (req, res) => {
             .single();
 
         if (updateError) {
+            // ✅ Postgres unique constraint violation (double-booking caught at DB level)
+            if (updateError.code === '23505') {
+                console.log('⚠️ Double-booking blocked by DB constraint on reschedule:', slot_start);
+                return res.status(409).json({ error: 'New slot is already booked' });
+            }
             return res.status(500).json({ error: updateError.message });
         }
 
