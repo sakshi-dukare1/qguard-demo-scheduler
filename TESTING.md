@@ -2,6 +2,8 @@
 
 This document summarizes the manual, API, and concurrency testing performed against the local development environment (`localhost:5000` backend, `localhost:3000` frontend) prior to deployment.
 
+> 📁 Screenshots referenced below are stored in the [`screenshots/`](screenshots/) folder in this repo.
+
 ---
 
 ## 1. Manual End-to-End Flow Testing
@@ -25,6 +27,12 @@ Full visitor journey tested through the actual UI, per the required flow:
 | Cancel link updates booking status to `CANCELLED` | ✅ Pass |
 | Cancelling releases the slot (confirmed via `/api/slots`) | ✅ Pass |
 
+**Evidence:**
+
+`.ics` calendar invite successfully imported into Outlook, showing correct event title and time:
+
+![ICS calendar import into Outlook](screenshots/ics-calendar-import.png)
+
 ---
 
 ## 2. Double-Booking Prevention (Concurrency Testing)
@@ -44,6 +52,10 @@ Verified present via:
 SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'bookings';
 ```
 
+**Evidence:**
+
+![Supabase unique index confirmation](screenshots/supabase-unique-index.png)
+
 ### Concurrency test script
 
 `backend/test-concurrency.js` fires two `POST /api/bookings` requests for the **same slot** using `Promise.allSettled`, so both requests are in flight at the same time rather than sequentially awaited.
@@ -59,6 +71,10 @@ Result statuses: [ 201, 409 ]
 ✅ PASS — exactly one booking succeeded, the other was correctly rejected.
 ```
 
+**Evidence:**
+
+![Concurrency test result showing 201 and 409](screenshots/concurrency-test-result.png)
+
 One request succeeded (`201 Created`); the other was rejected with `409 Conflict` — caught by the Postgres unique constraint (`error.code === '23505'`) in `createBooking`, not merely by the earlier application-level check. This is the layer that actually closes the race condition.
 
 The same constraint-violation handling is also applied in `rescheduleBooking`, so rescheduling into an already-taken slot is rejected the same way.
@@ -69,13 +85,13 @@ The same constraint-violation handling is also applied in `rescheduleBooking`, s
 
 Negative/validation testing against `POST /api/bookings` and `GET /api/bookings/:token`, confirming the API rejects bad input with clear, structured errors instead of crashing or silently accepting it.
 
-| # | Test | Input | Expected | Actual | Result |
-|---|------|-------|----------|--------|--------|
-| 1 | Missing required field | No `visitor_name` | `400` | `400` — `"Name is required"` (+ related field messages) | ✅ Pass |
-| 2 | Invalid email format | `visitor_email: "not-an-email"` | `400` | `400` — `"Please enter a valid email address"` | ✅ Pass |
-| 3 | Invalid slot duration | 45-minute slot instead of 30 | `400` | `400` — `"Demo slot must be exactly 30 minutes"` | ✅ Pass |
-| 4 | Past slot booking | `slot_start` in the past | `400` | `400` — `"Cannot book a slot in the past"` | ✅ Pass |
-| 5 | Nonexistent booking token | `GET /api/bookings/invalid-fake-token-123` | `404` | `404` — `"Booking not found"` | ✅ Pass |
+| # | Test | Input | Expected | Actual | Result | Evidence |
+|---|------|-------|----------|--------|--------|----------|
+| 1 | Missing required field | No `visitor_name` | `400` | `400` — `"Name is required"` (+ related field messages) | ✅ Pass | [screenshot](screenshots/postman-validation-01-missing-name.png) |
+| 2 | Invalid email format | `visitor_email: "not-an-email"` | `400` | `400` — `"Please enter a valid email address"` | ✅ Pass | [screenshot](screenshots/postman-validation-02-invalid-email.png) |
+| 3 | Invalid slot duration | 45-minute slot instead of 30 | `400` | `400` — `"Demo slot must be exactly 30 minutes"` | ✅ Pass | [screenshot](screenshots/postman-validation-03-wrong-duration.png) |
+| 4 | Past slot booking | `slot_start` in the past | `400` | `400` — `"Cannot book a slot in the past"` | ✅ Pass | [screenshot](screenshots/postman-validation-04-past-slot.png) |
+| 5 | Nonexistent booking token | `GET /api/bookings/invalid-fake-token-123` | `404` | `404` — `"Booking not found"` | ✅ Pass | [screenshot](screenshots/postman-validation-05-invalid-token.png) |
 
 All error responses return structured JSON (`{ error: "..." }` or `{ success: false, errors: [...] }`) rather than raw stack traces or database error messages — avoiding leaking internal implementation details to the client.
 
